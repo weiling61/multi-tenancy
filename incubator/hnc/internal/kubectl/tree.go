@@ -31,8 +31,9 @@ import (
 )
 
 var (
-	footnotesByMsg map[string]int
-	footnotes      []string
+	footnotesByMsg  map[string]int
+	footnotes       []string
+	hasSubnamespace bool
 )
 
 var treeCmd = &cobra.Command{
@@ -51,6 +52,7 @@ var treeCmd = &cobra.Command{
 			fmt.Printf("Error: Must specify the root of the tree(s) to display or else specify --all-namespaces\n")
 			os.Exit(1)
 		}
+
 		for _, nnm := range nsList {
 			hier := client.getHierarchy(nnm)
 			// If we're showing the default list, skip all non-root namespaces since they'll be displayed
@@ -64,6 +66,11 @@ var treeCmd = &cobra.Command{
 			fmt.Println(txt)
 			printSubtree("", hier, cycle)
 		}
+
+		if hasSubnamespace {
+			fmt.Printf("[s] indicates subnamespaces.\n")
+		}
+
 		if len(footnotes) > 0 {
 			fmt.Printf("\nConditions:\n")
 
@@ -81,6 +88,21 @@ func printSubtree(prefix string, hier *api.HierarchyConfiguration, inCycle bool)
 		if cycle && inCycle {
 			continue
 		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		ns, err := k8sClient.CoreV1().Namespaces().Get(ctx, txt, metav1.GetOptions{})
+		if err != nil {
+			fmt.Printf("Could not get namespaces: %s\n", err)
+			os.Exit(1)
+		}
+
+		if _, ok := ns.ObjectMeta.Annotations[api.SubnamespaceOf]; ok {
+			txt = "[s] " + txt
+			hasSubnamespace = true
+		}
+
 		if i < len(hier.Status.Children)-1 {
 			fmt.Printf("%s├── %s\n", prefix, txt)
 			printSubtree(prefix+"│   ", ch, cycle)

@@ -27,6 +27,8 @@ else
 endif
 endif
 
+# Override this to release from a different repo
+HNC_REPO_USER ?= "kubernetes-sigs"
 HNC_RELEASED_IMG ?= "gcr.io/k8s-staging-multitenancy/${HNC_IMG_NAME}:${HNC_IMG_TAG}"
 
 CONTROLLER_GEN ?= "./bin/controller-gen"
@@ -205,8 +207,8 @@ kind-deploy:
 # Note the `-timeout 0` that's passed to the `go test` command - by default, a
 # Go test suite has a 10m timeout, and the flag disables that timeout (as of
 # July 2020, these tests take ~15m and that number is expected to grow).
-.PHONY: e2e-test
-e2e-test:
+.PHONY: test-e2e
+test-e2e:
 	@echo
 	@echo "If these tests fail due to the webhook not being ready, wait 30s and try again. Note that webhooks can take up to 30s to become ready"
 	@echo "after HNC is first deployed in a cluster."
@@ -220,7 +222,20 @@ ifndef HNC_REPAIR
 	@sleep 5
 endif
 	go clean -testcache
-	go test -v -timeout 0 ./test/...
+	go test -v -timeout 0 ./test/e2e/...
+
+# This test is for conversion from v1alpha1 to v1alpha2. It will run on any
+# cluster w/o HNC. It will tear down any existing HNC deployment before and
+# after the test.
+#
+# Note the `-timeout 0` that's passed to the `go test` command - by default, a
+# Go test suite has a 10m timeout, and the flag disables that timeout.
+.PHONY: test-conversion
+# Have the manifests and kubectl plugin ready for the current change but do not
+# apply it. It will be applied in the test.
+test-conversion: docker-push kubectl manifests
+	go clean -testcache
+	go test -v -timeout 0 ./test/conversion/...
 
 ###################### RELEASE ACTIONS #########################
 # Build the container image by Cloud Build and build YAMLs locally
@@ -232,7 +247,7 @@ release: check-release-env test
 	@echo "Invoking Cloud Build"
 	@echo "*********************************************"
 	@echo "*********************************************"
-	@gcloud builds submit --config cloudbuild.yaml --no-source --substitutions=_HNC_IMG_TAG=${HNC_IMG_TAG},_HNC_USER=${HNC_USER},_HNC_PERSONAL_ACCESS_TOKEN=${HNC_PAT},_HNC_RELEASE_ID=${HNC_RELEASE_ID},_HNC_RELEASED_IMG=${HNC_RELEASED_IMG}
+	@gcloud builds submit --config cloudbuild.yaml --no-source --substitutions=_HNC_REPO_USER=${HNC_REPO_USER},_HNC_IMG_NAME=${HNC_IMG_NAME},_HNC_IMG_TAG=${HNC_IMG_TAG},_HNC_USER=${HNC_USER},_HNC_PERSONAL_ACCESS_TOKEN=${HNC_PAT},_HNC_RELEASE_ID=${HNC_RELEASE_ID},_HNC_RELEASED_IMG=${HNC_RELEASED_IMG}
 	@echo Pushing image to K8s staging
 	@docker pull ${HNC_IMG}
 	@docker tag ${HNC_IMG} ${HNC_RELEASED_IMG}
